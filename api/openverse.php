@@ -1,10 +1,11 @@
 <?php
-// GET ?q=<topic> -> { url, credit, credit_url } or { error }
-// The topic is moderated before it's sent to Pexels, so the API never sees
-// queries like "guns" or "drugs".
+// GET ?q=<topic> -> { url, thumbnail, credit, credit_url, license, source }
+// or { error }.
+// The topic is moderated before it's sent to Openverse so queries like
+// "guns" or "drugs" never leave the server.
 
 require_once __DIR__ . '/../includes/moderation.php';
-require_once __DIR__ . '/../includes/pexels.php';
+require_once __DIR__ . '/../includes/openverse.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -26,7 +27,7 @@ if (!$mod['ok']) {
     exit;
 }
 
-$result = pexels_search($q);
+$result = openverse_search($q);
 if (isset($result['error'])) {
     http_response_code(502);
     echo json_encode($result);

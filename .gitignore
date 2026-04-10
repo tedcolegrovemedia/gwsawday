@@ -7,6 +7,9 @@ data/builds/*
 data/cache/
 data/ratelimit/
 
+# Local Claude Code / preview config
+.claude/
+
 # OS / editor junk
 .DS_Store
 Thumbs.db

@@ -10,8 +10,13 @@ define('USE_OPENAI',      true);
 define('OPENAI_API_KEY',  '');  // e.g. 'sk-...'
 define('OPENAI_MOD_MODEL','omni-moderation-latest');
 
-// --- Pexels (header images) ---
-define('PEXELS_API_KEY',  '');  // get a free key at https://www.pexels.com/api/
+// --- Openverse (header images) ---
+// Openverse is an open-content image search with no API key required for
+// light use. For higher rate limits you can register at:
+//   https://api.openverse.org/v1/auth_tokens/register/
+// and provide a Bearer token here.
+define('OPENVERSE_API_BASE',  'https://api.openverse.org/v1/');
+define('OPENVERSE_BEARER',    '');  // optional, leave blank for anonymous access
 
 // --- Storage / limits ---
 define('DATA_DIR',        __DIR__ . '/data');
@@ -19,17 +24,18 @@ define('BUILDS_DIR',      DATA_DIR . '/builds');
 define('CACHE_DIR',       DATA_DIR . '/cache');
 define('RATELIMIT_DIR',   DATA_DIR . '/ratelimit');
 
-define('MAX_TITLE_LEN',   40);
-define('MAX_TOPIC_LEN',   30);
-define('MAX_BODY_LEN',    300);
-define('MAX_BUTTONS',     3);
-define('MAX_BUTTON_LEN',  20);
+define('MAX_TITLE_LEN',         40);
+define('MAX_TOPIC_LEN',         30);
+define('MAX_FOOTER_LEN',        60);
+define('MAX_CARDS',             3);
+define('MIN_CARDS',             1);
+define('MAX_CARD_TITLE_LEN',    24);
+define('MAX_CARD_CAPTION_LEN',  50);
+define('MAX_BUTTONS',           3);
+define('MAX_BUTTON_LEN',        20);
 
 define('MAX_BUILDS_PER_IP_10MIN', 150);
-define('PEXELS_CACHE_SECONDS',    600);
-
-// Only this host is allowed for image URLs stored on a build.
-define('ALLOWED_IMAGE_HOST_PREFIX', 'https://images.pexels.com/');
+define('IMAGE_CACHE_SECONDS',    3600);  // 1 hour — helps stay under Openverse anon limits
 
 // Shared code alphabet — no ambiguous characters (I, O, 0, 1).
 define('CODE_ALPHABET', 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789');

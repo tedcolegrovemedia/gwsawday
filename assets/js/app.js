@@ -1,4 +1,4 @@
-// 3-step builder state machine. Talks to api/moderate.php, api/pexels.php,
+// 4-step builder state machine. Talks to api/moderate.php, api/openverse.php,
 // api/save.php. Live preview updates on every keystroke via renderPhone().
 
 (function () {
@@ -7,16 +7,29 @@
   const state = {
     step: 1,
     build: {
-      header:  { title: '', image_url: '', image_credit: '', image_credit_url: '' },
-      content: { body: '' },
-      buttons: [{ label: '' }]
+      header: {
+        title: '',
+        font: 'fredoka',
+        image_url: '',
+        image_thumbnail: '',
+        image_credit: '',
+        image_credit_url: '',
+        image_license: '',
+        image_source: ''
+      },
+      cards: [
+        { emoji: '', title: '', caption: '' }
+      ],
+      buttons: [{ label: '' }],
+      footer: { text: '' }
     },
-    pexelsCache: {} // topic -> result, to avoid refetching on Back/Next
+    imageCache: {}, // topic -> Openverse result
+    emojiTargetCardIndex: null
   };
 
   // ---------- Helpers ----------
-  const $  = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  const $  = (sel, root) => (root || document).querySelector(sel);
+  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
   function showStep(n) {
     state.step = n;
@@ -24,7 +37,7 @@
     $$('.step-pill').forEach(el => {
       const p = Number(el.dataset.pill);
       el.classList.toggle('is-active', p === n);
-      el.classList.toggle('is-done', p < n && n <= 3);
+      el.classList.toggle('is-done', n <= 4 && p < n);
     });
   }
 
@@ -32,7 +45,7 @@
     const el = document.getElementById('step-' + step + '-error');
     if (el) el.textContent = msg || '';
   }
-  function clearErrors() { [1,2,3].forEach(n => setError(n, '')); }
+  function clearErrors() { [1,2,3,4].forEach(n => setError(n, '')); }
 
   function lockButtons(lock) {
     $$('.step-actions .btn').forEach(b => b.disabled = lock);
@@ -53,17 +66,17 @@
       if (!res.ok && res.status !== 400) throw new Error('bad response');
       return await res.json();
     } catch (e) {
-      // Network problem — don't block the kid; let save.php be the hard gate.
+      // Network issue — don't block the kid; save.php is the hard gate.
       return { ok: true, reason: '' };
     }
   }
 
-  async function pexels(q) {
-    if (state.pexelsCache[q]) return state.pexelsCache[q];
-    const res = await fetch('api/pexels.php?q=' + encodeURIComponent(q));
+  async function searchImage(q) {
+    if (state.imageCache[q]) return state.imageCache[q];
+    const res = await fetch('api/openverse.php?q=' + encodeURIComponent(q));
     const data = await res.json();
     if (!res.ok) return { error: data.error || 'Could not load a picture.' };
-    state.pexelsCache[q] = data;
+    state.imageCache[q] = data;
     return data;
   }
 
@@ -78,7 +91,7 @@
     return data;
   }
 
-  // ---------- Step 1: header ----------
+  // ---------- Step 1: header (name + topic + font) ----------
   function wireStep1() {
     const title = $('#f-title');
     const topic = $('#f-topic');
@@ -92,6 +105,16 @@
     });
     topic.addEventListener('input', () => {
       topicCount.textContent = topic.value.length;
+    });
+
+    // Font picker
+    $$('.font-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $$('.font-option').forEach(b => b.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        state.build.header.font = btn.dataset.font;
+        updatePreview();
+      });
     });
 
     $('[data-action="next-1"]').addEventListener('click', async () => {
@@ -108,38 +131,142 @@
       const modQ = await moderate(q);
       if (!modQ.ok) { lockButtons(false); return setError(1, modQ.reason); }
 
-      const pic = await pexels(q);
+      const pic = await searchImage(q);
       lockButtons(false);
       if (pic.error) return setError(1, pic.error);
 
       state.build.header.image_url        = pic.url || '';
+      state.build.header.image_thumbnail  = pic.thumbnail || '';
       state.build.header.image_credit     = pic.credit || '';
       state.build.header.image_credit_url = pic.credit_url || '';
+      state.build.header.image_license    = pic.license || '';
+      state.build.header.image_source     = pic.source || '';
       updatePreview();
       showStep(2);
     });
   }
 
-  // ---------- Step 2: content ----------
-  function wireStep2() {
-    const body = $('#f-body');
-    const count = $('#f-body-count');
-    body.addEventListener('input', () => {
-      state.build.content.body = body.value;
-      count.textContent = body.value.length;
-      updatePreview();
+  // ---------- Step 2: cards ----------
+  function renderCardEditors() {
+    const list = $('#cards-list');
+    list.textContent = '';
+    state.build.cards.forEach((card, idx) => {
+      const row = document.createElement('div');
+      row.className = 'card-editor';
+      row.dataset.index = String(idx);
+
+      const emojiBtn = document.createElement('button');
+      emojiBtn.type = 'button';
+      emojiBtn.className = 'card-emoji-btn' + (card.emoji ? '' : ' is-empty');
+      emojiBtn.textContent = card.emoji || 'Pick';
+      emojiBtn.addEventListener('click', () => openEmojiPicker(idx));
+      row.appendChild(emojiBtn);
+
+      const fields = document.createElement('div');
+      fields.className = 'card-fields';
+
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.maxLength = cfg.maxCardTitle;
+      titleInput.placeholder = 'Card title';
+      titleInput.value = card.title || '';
+      titleInput.addEventListener('input', () => {
+        state.build.cards[idx].title = titleInput.value;
+        updatePreview();
+      });
+
+      const capInput = document.createElement('input');
+      capInput.type = 'text';
+      capInput.maxLength = cfg.maxCardCaption;
+      capInput.placeholder = 'Short caption (optional)';
+      capInput.value = card.caption || '';
+      capInput.addEventListener('input', () => {
+        state.build.cards[idx].caption = capInput.value;
+        updatePreview();
+      });
+
+      fields.appendChild(titleInput);
+      fields.appendChild(capInput);
+      row.appendChild(fields);
+
+      if (state.build.cards.length > cfg.minCards) {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'card-remove';
+        remove.setAttribute('aria-label', 'Remove card');
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+          state.build.cards.splice(idx, 1);
+          renderCardEditors();
+          updatePreview();
+        });
+        row.appendChild(remove);
+      }
+
+      list.appendChild(row);
     });
+  }
+
+  function wireStep2() {
+    renderCardEditors();
+
+    $('#add-card').addEventListener('click', () => {
+      if (state.build.cards.length >= cfg.maxCards) return;
+      state.build.cards.push({ emoji: '', title: '', caption: '' });
+      renderCardEditors();
+    });
+
     $('[data-action="back-2"]').addEventListener('click', () => { clearErrors(); showStep(1); });
     $('[data-action="next-2"]').addEventListener('click', async () => {
       clearErrors();
-      const v = body.value.trim();
-      if (!v) return setError(2, 'Write a little bit about your app.');
-      if (v.length > cfg.maxBody) return setError(2, 'That is too long.');
+      const cards = state.build.cards;
+      if (cards.length < cfg.minCards) return setError(2, 'Add at least one card.');
+      for (let i = 0; i < cards.length; i++) {
+        const c = cards[i];
+        if (!c.emoji) return setError(2, 'Card ' + (i+1) + ' needs an emoji.');
+        const t = (c.title || '').trim();
+        if (!t) return setError(2, 'Card ' + (i+1) + ' needs a title.');
+        if (t.length > cfg.maxCardTitle) return setError(2, 'Card ' + (i+1) + ' title is too long.');
+        const cap = (c.caption || '').trim();
+        if (cap.length > cfg.maxCardCaption) return setError(2, 'Card ' + (i+1) + ' caption is too long.');
+      }
       lockButtons(true);
-      const mod = await moderate(v);
+      for (let i = 0; i < cards.length; i++) {
+        const m1 = await moderate(cards[i].title);
+        if (!m1.ok) { lockButtons(false); return setError(2, m1.reason); }
+        if (cards[i].caption) {
+          const m2 = await moderate(cards[i].caption);
+          if (!m2.ok) { lockButtons(false); return setError(2, m2.reason); }
+        }
+      }
       lockButtons(false);
-      if (!mod.ok) return setError(2, mod.reason);
       showStep(3);
+    });
+  }
+
+  // ---------- Emoji picker ----------
+  function openEmojiPicker(cardIndex) {
+    state.emojiTargetCardIndex = cardIndex;
+    $('#emoji-modal').hidden = false;
+  }
+  function closeEmojiPicker() {
+    state.emojiTargetCardIndex = null;
+    $('#emoji-modal').hidden = true;
+  }
+  function wireEmojiPicker() {
+    $$('#emoji-modal [data-close]').forEach(el => el.addEventListener('click', closeEmojiPicker));
+    $$('.emoji-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const i = state.emojiTargetCardIndex;
+        if (i === null || i === undefined) return;
+        state.build.cards[i].emoji = cell.dataset.emoji;
+        closeEmojiPicker();
+        renderCardEditors();
+        updatePreview();
+      });
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeEmojiPicker();
     });
   }
 
@@ -196,7 +323,7 @@
     bindRow(list.querySelector('.button-row'));
 
     $('[data-action="back-3"]').addEventListener('click', () => { clearErrors(); showStep(2); });
-    $('[data-action="finish"]').addEventListener('click', async () => {
+    $('[data-action="next-3"]').addEventListener('click', async () => {
       clearErrors();
       const btns = collectButtons();
       if (btns.length < 1) return setError(3, 'Add at least one button.');
@@ -205,24 +332,46 @@
         if (b.label.length > cfg.maxButtonLen) return setError(3, 'Button labels are too long.');
       }
       state.build.buttons = btns;
-
       lockButtons(true);
       for (const b of btns) {
         const mod = await moderate(b.label);
         if (!mod.ok) { lockButtons(false); return setError(3, mod.reason); }
       }
-      const result = await save();
       lockButtons(false);
-      if (result.error) return setError(3, result.error);
-
-      $('#share-code').textContent = result.code;
-      $('#share-url').value = result.url;
       showStep(4);
     });
   }
 
-  // ---------- Step 4: done ----------
+  // ---------- Step 4: footer ----------
   function wireStep4() {
+    const footer = $('#f-footer');
+    const count  = $('#f-footer-count');
+    footer.addEventListener('input', () => {
+      state.build.footer.text = footer.value;
+      count.textContent = footer.value.length;
+      updatePreview();
+    });
+    $('[data-action="back-4"]').addEventListener('click', () => { clearErrors(); showStep(3); });
+    $('[data-action="finish"]').addEventListener('click', async () => {
+      clearErrors();
+      const t = footer.value.trim();
+      if (!t) return setError(4, 'Write a short footer.');
+      if (t.length > cfg.maxFooter) return setError(4, 'Footer is too long.');
+      lockButtons(true);
+      const mod = await moderate(t);
+      if (!mod.ok) { lockButtons(false); return setError(4, mod.reason); }
+      const result = await save();
+      lockButtons(false);
+      if (result.error) return setError(4, result.error);
+
+      $('#share-code').textContent = result.code;
+      $('#share-url').value = result.url;
+      showStep(5);
+    });
+  }
+
+  // ---------- Done panel ----------
+  function wireDone() {
     $('#copy-url').addEventListener('click', () => {
       const el = $('#share-url');
       el.select();
@@ -241,6 +390,8 @@
     wireStep2();
     wireStep3();
     wireStep4();
+    wireEmojiPicker();
+    wireDone();
     updatePreview();
     showStep(1);
   });
