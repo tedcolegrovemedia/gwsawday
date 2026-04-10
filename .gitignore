@@ -1,0 +1,16 @@
+# Secrets — never commit real API keys
+config.php
+
+# Saved builds, caches, per-IP rate-limit counters
+data/builds/*
+!data/builds/.gitkeep
+data/cache/
+data/ratelimit/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

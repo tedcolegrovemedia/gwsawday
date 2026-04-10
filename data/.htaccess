@@ -1,0 +1,9 @@
+# Block direct access to stored builds, cache files, and rate-limit data.
+# Saved apps are only viewable through view.php.
+Order deny,allow
+Deny from all
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
