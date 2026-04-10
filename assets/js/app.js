@@ -1,11 +1,15 @@
-// 4-step builder state machine. Talks to api/moderate.php, api/openverse.php,
+// 5-step builder state machine. Talks to api/moderate.php, api/openverse.php,
 // api/save.php. Live preview updates on every keystroke via renderPhone().
+//
+// Steps: 1=header, 2=colors, 3=fact cards, 4=buttons, 5=footer, 6=done.
 
 (function () {
   const cfg = window.APP_CONFIG || {};
+  const colorHex = cfg.colorHex || {};
 
   const state = {
     step: 1,
+    topic: '',   // subject from step 1, reused to qualify card image searches
     build: {
       header: {
         title: '',
@@ -17,14 +21,22 @@
         image_license: '',
         image_source: ''
       },
+      colors: {
+        primary: 'navy',    // palette key
+        accent:  'orange'
+      },
       cards: [
-        { emoji: '', title: '', caption: '' }
+        { title: '', caption: '', image_url: '', image_thumbnail: '', image_credit: '', image_credit_url: '', image_license: '', image_source: '' }
       ],
       buttons: [{ label: '' }],
       footer: { text: '' }
     },
-    imageCache: {}, // topic -> Openverse result
-    emojiTargetCardIndex: null
+    imageCache: {},       // full query -> Openverse result
+    cardDebounce: {},     // cardIndex -> timeout id
+    // Live-moderation tracking: for each step, a Set of field keys that
+    // currently contain text the moderator rejected. Any non-empty set
+    // blocks that step's Next button.
+    invalidFields: { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set(), 5: new Set() }
   };
 
   // ---------- Helpers ----------
@@ -37,7 +49,7 @@
     $$('.step-pill').forEach(el => {
       const p = Number(el.dataset.pill);
       el.classList.toggle('is-active', p === n);
-      el.classList.toggle('is-done', n <= 4 && p < n);
+      el.classList.toggle('is-done', n <= 5 && p < n);
     });
   }
 
@@ -45,14 +57,28 @@
     const el = document.getElementById('step-' + step + '-error');
     if (el) el.textContent = msg || '';
   }
-  function clearErrors() { [1,2,3,4].forEach(n => setError(n, '')); }
+  function clearErrors() { [1,2,3,4,5].forEach(n => setError(n, '')); }
 
   function lockButtons(lock) {
     $$('.step-actions .btn').forEach(b => b.disabled = lock);
   }
 
+  // Build a shape the renderer can read — converts palette color keys to hex.
+  function renderableBuild() {
+    const b = state.build;
+    return {
+      header: b.header,
+      colors: {
+        primary: colorHex[b.colors.primary] || '#14386b',
+        accent:  colorHex[b.colors.accent]  || '#d35400'
+      },
+      cards:   b.cards,
+      buttons: b.buttons,
+      footer:  b.footer
+    };
+  }
   function updatePreview() {
-    if (window.renderPhone) window.renderPhone(state.build);
+    if (window.renderPhone) window.renderPhone(renderableBuild());
   }
 
   // ---------- API calls ----------
@@ -66,8 +92,7 @@
       if (!res.ok && res.status !== 400) throw new Error('bad response');
       return await res.json();
     } catch (e) {
-      // Network issue — don't block the kid; save.php is the hard gate.
-      return { ok: true, reason: '' };
+      return { ok: true, reason: '' }; // save.php is the hard gate
     }
   }
 
@@ -78,6 +103,79 @@
     if (!res.ok) return { error: data.error || 'Could not load a picture.' };
     state.imageCache[q] = data;
     return data;
+  }
+
+  // For card backgrounds: try "topic + title", fall back to just title,
+  // then just topic. Whichever returns results first wins. Specific
+  // combined queries often have no Openverse results so a fallback
+  // keeps cards from ending up blank.
+  async function searchCardImage(topic, title) {
+    const raw = [
+      ((topic || '') + ' ' + (title || '')).trim(),
+      (title || '').trim(),
+      (topic || '').trim()
+    ];
+    const queries = raw.filter((v, i) => v && raw.indexOf(v) === i);
+    for (const q of queries) {
+      const r = await searchImage(q);
+      if (!r.error) return r;
+    }
+    return { error: "No picture found." };
+  }
+
+  // ---------- Live moderation ----------
+  // Attach debounced + blur-time moderation to a text input. If the
+  // current value is rejected, we mark the input invalid, show the
+  // step's error banner, and block Next until it clears.
+  //
+  // stepNum: 1..5 — which step's invalid-set this field belongs to.
+  // fieldKey: unique string — used so the same field can toggle itself
+  //           in and out of the invalid-set.
+  function wireLiveModeration(input, stepNum, fieldKey) {
+    let timer = null;
+
+    const check = async () => {
+      const val = (input.value || '').trim();
+      if (val === '') {
+        // Empty text is not "invalid" per the moderator — the required
+        // check lives in the Next handlers.
+        state.invalidFields[stepNum].delete(fieldKey);
+        input.classList.remove('is-invalid');
+        if (state.invalidFields[stepNum].size === 0) setError(stepNum, '');
+        return;
+      }
+      const mod = await moderate(val);
+      // If the input changed again while we were awaiting, bail — the
+      // later keystroke scheduled its own check.
+      if ((input.value || '').trim() !== val) return;
+      if (mod.ok) {
+        state.invalidFields[stepNum].delete(fieldKey);
+        input.classList.remove('is-invalid');
+        if (state.invalidFields[stepNum].size === 0) setError(stepNum, '');
+      } else {
+        state.invalidFields[stepNum].add(fieldKey);
+        input.classList.add('is-invalid');
+        setError(stepNum, mod.reason);
+      }
+    };
+
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(check, 450);
+    });
+    input.addEventListener('blur', () => {
+      clearTimeout(timer);
+      check();
+    });
+  }
+
+  // Remove any invalid-field entries whose keys start with the given
+  // prefix. Used when we re-render dynamic lists (cards, buttons) so
+  // stale entries from removed rows don't keep the step blocked.
+  function clearInvalidByPrefix(stepNum, prefix) {
+    const set = state.invalidFields[stepNum];
+    [...set].forEach(k => { if (k.indexOf(prefix) === 0) set.delete(k); });
+    if (set.size === 0) setError(stepNum, '');
   }
 
   async function save() {
@@ -91,7 +189,7 @@
     return data;
   }
 
-  // ---------- Step 1: header (name + topic + font) ----------
+  // ---------- Step 1: header ----------
   function wireStep1() {
     const title = $('#f-title');
     const topic = $('#f-topic');
@@ -107,7 +205,10 @@
       topicCount.textContent = topic.value.length;
     });
 
-    // Font picker
+    // Live moderation — block bad words the moment we can detect them.
+    wireLiveModeration(title, 1, 'title');
+    wireLiveModeration(topic, 1, 'topic');
+
     $$('.font-option').forEach(btn => {
       btn.addEventListener('click', () => {
         $$('.font-option').forEach(b => b.classList.remove('is-selected'));
@@ -123,18 +224,33 @@
       const q = topic.value.trim();
       if (!t) return setError(1, 'Give your app a name first.');
       if (t.length > cfg.maxTitle) return setError(1, 'Name is too long.');
-      if (!q) return setError(1, 'Pick a topic for your picture.');
+      if (!q) return setError(1, 'Tell us what your app is about.');
 
       lockButtons(true);
       const modT = await moderate(t);
-      if (!modT.ok) { lockButtons(false); return setError(1, modT.reason); }
+      if (!modT.ok) {
+        lockButtons(false);
+        state.invalidFields[1].add('title');
+        title.classList.add('is-invalid');
+        return setError(1, modT.reason);
+      }
       const modQ = await moderate(q);
-      if (!modQ.ok) { lockButtons(false); return setError(1, modQ.reason); }
+      if (!modQ.ok) {
+        lockButtons(false);
+        state.invalidFields[1].add('topic');
+        topic.classList.add('is-invalid');
+        return setError(1, modQ.reason);
+      }
+      if (state.invalidFields[1].size > 0) {
+        lockButtons(false);
+        return setError(1, "Let's fix the words in red first.");
+      }
 
       const pic = await searchImage(q);
       lockButtons(false);
       if (pic.error) return setError(1, pic.error);
 
+      state.topic = q;
       state.build.header.image_url        = pic.url || '';
       state.build.header.image_thumbnail  = pic.thumbnail || '';
       state.build.header.image_credit     = pic.credit || '';
@@ -146,21 +262,107 @@
     });
   }
 
-  // ---------- Step 2: cards ----------
+  // ---------- Step 2: colors ----------
+  function wireStep2() {
+    $$('.color-picker').forEach(picker => {
+      const role = picker.dataset.role; // 'primary' or 'accent'
+      $$('.color-swatch', picker).forEach(sw => {
+        sw.addEventListener('click', () => {
+          $$('.color-swatch', picker).forEach(s => s.classList.remove('is-selected'));
+          sw.classList.add('is-selected');
+          state.build.colors[role] = sw.dataset.color;
+          updatePreview();
+        });
+      });
+    });
+
+    $('[data-action="back-2"]').addEventListener('click', () => { clearErrors(); showStep(1); });
+    $('[data-action="next-2"]').addEventListener('click', () => {
+      clearErrors();
+      showStep(3);
+    });
+  }
+
+  // ---------- Step 3: fact cards ----------
+  function fetchCardImage(idx) {
+    const card = state.build.cards[idx];
+    if (!card) return;
+    const title = (card.title || '').trim();
+    if (title.length < 3) return;
+
+    // Update thumbnail to spinner state
+    const editor = document.querySelector('.card-editor[data-index="' + idx + '"]');
+    if (editor) {
+      const thumb = editor.querySelector('.card-thumb');
+      const spin = thumb.querySelector('.spinner');
+      if (spin) spin.style.display = 'flex';
+    }
+
+    searchCardImage(state.topic, title).then(res => {
+      // Guard against stale responses — only apply if this title is still the current one
+      const current = state.build.cards[idx];
+      if (!current || (current.title || '').trim() !== title) return;
+      const editorNow = document.querySelector('.card-editor[data-index="' + idx + '"]');
+      if (editorNow) {
+        const spin = editorNow.querySelector('.card-thumb .spinner');
+        if (spin) spin.style.display = 'none';
+      }
+      if (res.error) return; // silently leave card without image
+      current.image_url        = res.url || '';
+      current.image_thumbnail  = res.thumbnail || res.url || '';
+      current.image_credit     = res.credit || '';
+      current.image_credit_url = res.credit_url || '';
+      current.image_license    = res.license || '';
+      current.image_source     = res.source || '';
+
+      // Update thumbnail in editor
+      const editor2 = document.querySelector('.card-editor[data-index="' + idx + '"]');
+      if (editor2) {
+        const thumb = editor2.querySelector('.card-thumb');
+        thumb.classList.add('has-image');
+        thumb.style.backgroundImage = "url('" + (res.thumbnail || res.url).replace(/'/g, "%27") + "')";
+        const ph = thumb.querySelector('.card-thumb-placeholder');
+        if (ph) ph.style.display = 'none';
+        const spin = thumb.querySelector('.spinner');
+        if (spin) spin.style.display = 'none';
+      }
+      updatePreview();
+    });
+  }
+
+  function scheduleCardImageFetch(idx) {
+    clearTimeout(state.cardDebounce[idx]);
+    state.cardDebounce[idx] = setTimeout(() => fetchCardImage(idx), 800);
+  }
+
   function renderCardEditors() {
     const list = $('#cards-list');
     list.textContent = '';
+    // Clear any stale invalid entries for this step; we'll re-add for
+    // the current card editors as they validate.
+    clearInvalidByPrefix(3, 'card-');
     state.build.cards.forEach((card, idx) => {
       const row = document.createElement('div');
       row.className = 'card-editor';
       row.dataset.index = String(idx);
 
-      const emojiBtn = document.createElement('button');
-      emojiBtn.type = 'button';
-      emojiBtn.className = 'card-emoji-btn' + (card.emoji ? '' : ' is-empty');
-      emojiBtn.textContent = card.emoji || 'Pick';
-      emojiBtn.addEventListener('click', () => openEmojiPicker(idx));
-      row.appendChild(emojiBtn);
+      const thumb = document.createElement('div');
+      thumb.className = 'card-thumb' + (card.image_url ? ' has-image' : '');
+      const placeholder = document.createElement('span');
+      placeholder.className = 'card-thumb-placeholder';
+      placeholder.textContent = '📷';
+      thumb.appendChild(placeholder);
+      if (card.image_url) {
+        const src = card.image_thumbnail || card.image_url;
+        thumb.style.backgroundImage = "url('" + src.replace(/'/g, "%27") + "')";
+        placeholder.style.display = 'none';
+      }
+      const spin = document.createElement('div');
+      spin.className = 'spinner';
+      spin.textContent = '⏳';
+      spin.style.display = 'none';
+      thumb.appendChild(spin);
+      row.appendChild(thumb);
 
       const fields = document.createElement('div');
       fields.className = 'card-fields';
@@ -168,17 +370,18 @@
       const titleInput = document.createElement('input');
       titleInput.type = 'text';
       titleInput.maxLength = cfg.maxCardTitle;
-      titleInput.placeholder = 'Card title';
+      titleInput.placeholder = 'Fun fact headline';
       titleInput.value = card.title || '';
       titleInput.addEventListener('input', () => {
         state.build.cards[idx].title = titleInput.value;
         updatePreview();
+        scheduleCardImageFetch(idx);
       });
 
-      const capInput = document.createElement('input');
-      capInput.type = 'text';
+      const capInput = document.createElement('textarea');
+      capInput.rows = 2;
       capInput.maxLength = cfg.maxCardCaption;
-      capInput.placeholder = 'Short caption (optional)';
+      capInput.placeholder = 'The fun fact (e.g., "Dogs hear 4x better than humans!")';
       capInput.value = card.caption || '';
       capInput.addEventListener('input', () => {
         state.build.cards[idx].caption = capInput.value;
@@ -188,6 +391,9 @@
       fields.appendChild(titleInput);
       fields.appendChild(capInput);
       row.appendChild(fields);
+
+      wireLiveModeration(titleInput, 3, 'card-' + idx + '-title');
+      wireLiveModeration(capInput,   3, 'card-' + idx + '-caption');
 
       if (state.build.cards.length > cfg.minCards) {
         const remove = document.createElement('button');
@@ -207,70 +413,45 @@
     });
   }
 
-  function wireStep2() {
+  function wireStep3() {
     renderCardEditors();
 
     $('#add-card').addEventListener('click', () => {
       if (state.build.cards.length >= cfg.maxCards) return;
-      state.build.cards.push({ emoji: '', title: '', caption: '' });
+      state.build.cards.push({ title: '', caption: '', image_url: '', image_thumbnail: '', image_credit: '', image_credit_url: '', image_license: '', image_source: '' });
       renderCardEditors();
     });
 
-    $('[data-action="back-2"]').addEventListener('click', () => { clearErrors(); showStep(1); });
-    $('[data-action="next-2"]').addEventListener('click', async () => {
+    $('[data-action="back-3"]').addEventListener('click', () => { clearErrors(); showStep(2); });
+    $('[data-action="next-3"]').addEventListener('click', async () => {
       clearErrors();
+      if (state.invalidFields[3].size > 0) {
+        return setError(3, "Let's fix the cards in red first.");
+      }
       const cards = state.build.cards;
-      if (cards.length < cfg.minCards) return setError(2, 'Add at least one card.');
+      if (cards.length < cfg.minCards) return setError(3, 'Add at least one fun fact.');
       for (let i = 0; i < cards.length; i++) {
         const c = cards[i];
-        if (!c.emoji) return setError(2, 'Card ' + (i+1) + ' needs an emoji.');
         const t = (c.title || '').trim();
-        if (!t) return setError(2, 'Card ' + (i+1) + ' needs a title.');
-        if (t.length > cfg.maxCardTitle) return setError(2, 'Card ' + (i+1) + ' title is too long.');
         const cap = (c.caption || '').trim();
-        if (cap.length > cfg.maxCardCaption) return setError(2, 'Card ' + (i+1) + ' caption is too long.');
+        if (!t) return setError(3, 'Card ' + (i+1) + ' needs a headline.');
+        if (!cap) return setError(3, 'Card ' + (i+1) + ' needs a fun fact.');
+        if (t.length > cfg.maxCardTitle) return setError(3, 'Card ' + (i+1) + ' headline is too long.');
+        if (cap.length > cfg.maxCardCaption) return setError(3, 'Card ' + (i+1) + ' fact is too long.');
       }
       lockButtons(true);
       for (let i = 0; i < cards.length; i++) {
         const m1 = await moderate(cards[i].title);
-        if (!m1.ok) { lockButtons(false); return setError(2, m1.reason); }
-        if (cards[i].caption) {
-          const m2 = await moderate(cards[i].caption);
-          if (!m2.ok) { lockButtons(false); return setError(2, m2.reason); }
-        }
+        if (!m1.ok) { lockButtons(false); return setError(3, m1.reason); }
+        const m2 = await moderate(cards[i].caption);
+        if (!m2.ok) { lockButtons(false); return setError(3, m2.reason); }
       }
       lockButtons(false);
-      showStep(3);
+      showStep(4);
     });
   }
 
-  // ---------- Emoji picker ----------
-  function openEmojiPicker(cardIndex) {
-    state.emojiTargetCardIndex = cardIndex;
-    $('#emoji-modal').hidden = false;
-  }
-  function closeEmojiPicker() {
-    state.emojiTargetCardIndex = null;
-    $('#emoji-modal').hidden = true;
-  }
-  function wireEmojiPicker() {
-    $$('#emoji-modal [data-close]').forEach(el => el.addEventListener('click', closeEmojiPicker));
-    $$('.emoji-cell').forEach(cell => {
-      cell.addEventListener('click', () => {
-        const i = state.emojiTargetCardIndex;
-        if (i === null || i === undefined) return;
-        state.build.cards[i].emoji = cell.dataset.emoji;
-        closeEmojiPicker();
-        renderCardEditors();
-        updatePreview();
-      });
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeEmojiPicker();
-    });
-  }
-
-  // ---------- Step 3: buttons ----------
+  // ---------- Step 4: buttons ----------
   function collectButtons() {
     const arr = [];
     $$('#buttons-list .f-button').forEach(inp => {
@@ -280,19 +461,24 @@
     return arr;
   }
 
-  function wireStep3() {
+  function wireStep4() {
     const list = $('#buttons-list');
 
+    let btnSeq = 0;
     function bindRow(row) {
       const input = row.querySelector('.f-button');
+      const key = 'btn-' + (btnSeq++);
       input.addEventListener('input', () => {
         state.build.buttons = collectButtons();
         updatePreview();
       });
+      wireLiveModeration(input, 4, key);
       const remove = row.querySelector('.row-remove');
       if (remove) {
         remove.addEventListener('click', () => {
           if (list.children.length <= 1) return;
+          state.invalidFields[4].delete(key);
+          if (state.invalidFields[4].size === 0) setError(4, '');
           row.remove();
           relabelRows();
           state.build.buttons = collectButtons();
@@ -322,28 +508,31 @@
 
     bindRow(list.querySelector('.button-row'));
 
-    $('[data-action="back-3"]').addEventListener('click', () => { clearErrors(); showStep(2); });
-    $('[data-action="next-3"]').addEventListener('click', async () => {
+    $('[data-action="back-4"]').addEventListener('click', () => { clearErrors(); showStep(3); });
+    $('[data-action="next-4"]').addEventListener('click', async () => {
       clearErrors();
+      if (state.invalidFields[4].size > 0) {
+        return setError(4, "Let's fix the buttons in red first.");
+      }
       const btns = collectButtons();
-      if (btns.length < 1) return setError(3, 'Add at least one button.');
-      if (btns.length > cfg.maxButtons) return setError(3, 'Too many buttons.');
+      if (btns.length < 1) return setError(4, 'Add at least one button.');
+      if (btns.length > cfg.maxButtons) return setError(4, 'Too many buttons.');
       for (const b of btns) {
-        if (b.label.length > cfg.maxButtonLen) return setError(3, 'Button labels are too long.');
+        if (b.label.length > cfg.maxButtonLen) return setError(4, 'Button labels are too long.');
       }
       state.build.buttons = btns;
       lockButtons(true);
       for (const b of btns) {
         const mod = await moderate(b.label);
-        if (!mod.ok) { lockButtons(false); return setError(3, mod.reason); }
+        if (!mod.ok) { lockButtons(false); return setError(4, mod.reason); }
       }
       lockButtons(false);
-      showStep(4);
+      showStep(5);
     });
   }
 
-  // ---------- Step 4: footer ----------
-  function wireStep4() {
+  // ---------- Step 5: footer ----------
+  function wireStep5() {
     const footer = $('#f-footer');
     const count  = $('#f-footer-count');
     footer.addEventListener('input', () => {
@@ -351,22 +540,31 @@
       count.textContent = footer.value.length;
       updatePreview();
     });
-    $('[data-action="back-4"]').addEventListener('click', () => { clearErrors(); showStep(3); });
+    wireLiveModeration(footer, 5, 'footer');
+    $('[data-action="back-5"]').addEventListener('click', () => { clearErrors(); showStep(4); });
     $('[data-action="finish"]').addEventListener('click', async () => {
       clearErrors();
+      if (state.invalidFields[5].size > 0) {
+        return setError(5, "Let's fix the footer first.");
+      }
       const t = footer.value.trim();
-      if (!t) return setError(4, 'Write a short footer.');
-      if (t.length > cfg.maxFooter) return setError(4, 'Footer is too long.');
+      if (!t) return setError(5, 'Write a short footer.');
+      if (t.length > cfg.maxFooter) return setError(5, 'Footer is too long.');
       lockButtons(true);
       const mod = await moderate(t);
-      if (!mod.ok) { lockButtons(false); return setError(4, mod.reason); }
+      if (!mod.ok) {
+        lockButtons(false);
+        state.invalidFields[5].add('footer');
+        footer.classList.add('is-invalid');
+        return setError(5, mod.reason);
+      }
       const result = await save();
       lockButtons(false);
-      if (result.error) return setError(4, result.error);
+      if (result.error) return setError(5, result.error);
 
       $('#share-code').textContent = result.code;
       $('#share-url').value = result.url;
-      showStep(5);
+      showStep(6);
     });
   }
 
@@ -390,7 +588,7 @@
     wireStep2();
     wireStep3();
     wireStep4();
-    wireEmojiPicker();
+    wireStep5();
     wireDone();
     updatePreview();
     showStep(1);

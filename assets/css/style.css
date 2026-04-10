@@ -28,7 +28,7 @@ html, body {
 
 a { color: var(--wolf-blue); }
 
-/* ---------- Header ---------- */
+/* ---------- Site header ---------- */
 .site-header {
   text-align: center;
   padding: 32px 20px 16px;
@@ -74,13 +74,12 @@ a { color: var(--wolf-blue); }
   .preview-panel { order: -1; }
 }
 
-/* ---------- Builder panel ---------- */
 .builder-panel {
   background: var(--card);
   border-radius: var(--radius);
   padding: 24px 24px 28px;
   box-shadow: var(--shadow);
-  min-height: 520px;
+  min-height: 560px;
 }
 
 .step-indicator {
@@ -88,39 +87,33 @@ a { color: var(--wolf-blue); }
   padding: 0;
   margin: 0 0 20px;
   display: flex;
-  gap: 6px;
+  gap: 5px;
 }
 .step-pill {
   flex: 1;
   text-align: center;
-  padding: 10px 4px;
+  padding: 9px 4px;
   border-radius: 999px;
   background: #e9eef6;
   color: var(--ink-soft);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   transition: all .2s;
 }
 .step-pill span {
   display: inline-block;
-  width: 20px; height: 20px;
-  line-height: 20px;
+  width: 18px; height: 18px;
+  line-height: 18px;
   border-radius: 50%;
   background: #fff;
   color: var(--ink-soft);
-  margin-right: 4px;
+  margin-right: 3px;
   font-family: 'Fredoka', sans-serif;
-  font-size: 12px;
+  font-size: 11px;
 }
-.step-pill.is-active {
-  background: var(--wolf-blue);
-  color: #fff;
-}
+.step-pill.is-active { background: var(--wolf-blue); color: #fff; }
 .step-pill.is-active span { background: var(--wolf-gold); color: var(--ink); }
-.step-pill.is-done {
-  background: var(--wolf-gold);
-  color: var(--ink);
-}
+.step-pill.is-done { background: var(--wolf-gold); color: var(--ink); }
 
 .step-panel { display: none; }
 .step-panel.is-active { display: block; animation: fadein .25s ease; }
@@ -133,17 +126,10 @@ a { color: var(--wolf-blue); }
   margin: 4px 0 6px;
   color: var(--wolf-blue);
 }
-.step-hint {
-  margin: 0 0 18px;
-  color: var(--ink-soft);
-}
+.step-hint { margin: 0 0 18px; color: var(--ink-soft); }
 
 /* ---------- Fields ---------- */
-.field {
-  display: block;
-  margin-bottom: 18px;
-  position: relative;
-}
+.field { display: block; margin-bottom: 18px; position: relative; }
 .field-label {
   display: block;
   font-weight: 600;
@@ -167,6 +153,17 @@ a { color: var(--wolf-blue); }
 .field input:focus, .field textarea:focus {
   border-color: var(--wolf-blue);
   box-shadow: 0 0 0 3px rgba(20,56,107,0.12);
+}
+
+/* Live-moderation invalid state — used on any text input whose current
+   value was rejected by the content filter. */
+.field input.is-invalid,
+.field textarea.is-invalid,
+.card-fields input.is-invalid,
+.card-fields textarea.is-invalid {
+  border-color: var(--danger) !important;
+  background: #fff5f5 !important;
+  box-shadow: 0 0 0 3px rgba(197,48,48,0.12) !important;
 }
 .field-counter {
   position: absolute;
@@ -245,42 +242,82 @@ a { color: var(--wolf-blue); }
   font-weight: 600;
 }
 
-/* ---------- Card editor ---------- */
+/* ---------- Color picker ---------- */
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.color-swatch {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 3px solid #dae1ec;
+  cursor: pointer;
+  transition: transform .1s, box-shadow .15s, border-color .15s;
+  padding: 0;
+}
+.color-swatch:hover {
+  transform: scale(1.08);
+  border-color: #a8b6ca;
+}
+.color-swatch.is-selected {
+  border-color: var(--wolf-blue);
+  box-shadow: 0 0 0 3px rgba(20,56,107,0.25), 0 6px 12px rgba(0,0,0,0.15);
+  transform: scale(1.1);
+}
+
+/* ---------- Card editor (Step 3) ---------- */
 .card-editor {
   background: #f8faff;
   border: 2px solid #dae1ec;
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 12px;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
   display: grid;
-  grid-template-columns: 68px 1fr auto;
-  gap: 10px;
-  align-items: start;
+  grid-template-columns: 72px 1fr auto;
+  gap: 12px;
+  align-items: center;
 }
-.card-emoji-btn {
-  width: 64px; height: 64px;
+.card-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  background: #e9eef6 center / cover;
   border: 2px dashed #c5cfe0;
-  border-radius: 12px;
-  background: #fff;
-  font-size: 32px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 24px;
+  color: #a8b6ca;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
 }
-.card-emoji-btn:hover { border-color: var(--wolf-blue); }
-.card-emoji-btn.is-empty { color: #a8b6ca; font-size: 22px; }
+.card-thumb.has-image { border-style: solid; border-color: var(--wolf-blue); }
+.card-thumb .spinner {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
 .card-fields { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.card-fields input {
+.card-fields input,
+.card-fields textarea {
   width: 100%;
-  padding: 8px 10px;
+  padding: 9px 10px;
   border: 2px solid #dae1ec;
   border-radius: 8px;
   background: #fff;
   font-family: inherit;
   font-size: 14px;
+  resize: vertical;
 }
-.card-fields input:focus {
+.card-fields input:focus,
+.card-fields textarea:focus {
   outline: none;
   border-color: var(--wolf-blue);
   box-shadow: 0 0 0 3px rgba(20,56,107,0.1);
@@ -296,64 +333,6 @@ a { color: var(--wolf-blue); }
   align-self: center;
 }
 .card-remove:hover { background: #ffe1e1; color: var(--danger); }
-
-/* ---------- Emoji picker modal ---------- */
-.emoji-modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-}
-.emoji-modal[hidden] { display: none; }
-.emoji-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(13,37,72,0.45);
-}
-.emoji-modal-panel {
-  position: relative;
-  background: #fff;
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 30px 60px rgba(0,0,0,0.25);
-  width: min(420px, 92vw);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-}
-.emoji-modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-family: 'Fredoka', sans-serif;
-  font-size: 20px;
-  color: var(--wolf-blue);
-  margin-bottom: 10px;
-}
-.emoji-modal-close {
-  background: transparent;
-  border: none;
-  font-size: 26px;
-  cursor: pointer;
-  color: var(--ink-soft);
-}
-.emoji-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 4px;
-  overflow-y: auto;
-}
-.emoji-cell {
-  font-size: 26px;
-  padding: 6px;
-  background: transparent;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.emoji-cell:hover { background: #eef3fb; border-color: #dae1ec; }
 
 /* ---------- Buttons ---------- */
 .btn {
@@ -374,10 +353,7 @@ a { color: var(--wolf-blue); }
 }
 .btn-primary:hover { background: #ffc855; }
 .btn-primary[disabled] { opacity: .6; cursor: wait; box-shadow: none; }
-.btn-secondary {
-  background: #e9eef6;
-  color: var(--wolf-blue);
-}
+.btn-secondary { background: #e9eef6; color: var(--wolf-blue); }
 .btn-secondary:hover { background: #dce4f1; }
 .btn-ghost {
   background: transparent;
@@ -418,11 +394,10 @@ a { color: var(--wolf-blue); }
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: sticky;
+  top: 20px;
 }
-.phone {
-  width: 310px;
-  max-width: 100%;
-}
+.phone { width: 310px; max-width: 100%; }
 .phone-frame {
   position: relative;
   width: 310px;
@@ -454,6 +429,9 @@ a { color: var(--wolf-blue); }
   background: #fff;
   display: flex;
   flex-direction: column;
+  /* Student color defaults — overridden by inline style */
+  --app-primary: #14386b;
+  --app-accent: #d35400;
 }
 
 /* Font switching via data-font attribute */
@@ -462,13 +440,18 @@ a { color: var(--wolf-blue); }
 .phone-screen[data-font="press-start"] .app-title { font-family: 'Press Start 2P', monospace; font-size: 15px; line-height: 1.3; }
 .phone-screen[data-font="bungee"]      .app-title { font-family: 'Bungee', cursive; }
 .phone-screen[data-font="pacifico"]    .app-title { font-family: 'Pacifico', cursive; }
+.phone-screen[data-font="fredoka"]     .app-card-title { font-family: 'Fredoka', sans-serif; font-weight: 700; }
+.phone-screen[data-font="luckiest"]    .app-card-title { font-family: 'Luckiest Guy', cursive; letter-spacing: 0.5px; }
+.phone-screen[data-font="press-start"] .app-card-title { font-family: 'Press Start 2P', monospace; font-size: 13px; }
+.phone-screen[data-font="bungee"]      .app-card-title { font-family: 'Bungee', cursive; }
+.phone-screen[data-font="pacifico"]    .app-card-title { font-family: 'Pacifico', cursive; }
 
 /* App inside the phone */
 .app-header {
   position: relative;
-  height: 160px;
+  height: 150px;
   flex-shrink: 0;
-  background-color: #14386b;
+  background-color: var(--app-primary);
   background-size: cover;
   background-position: center;
   display: flex;
@@ -481,102 +464,121 @@ a { color: var(--wolf-blue); }
 }
 .app-header-overlay {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.55) 100%);
+  background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.6) 100%);
 }
 .app-title {
   position: relative;
   margin: 0;
   font-size: 22px;
   line-height: 1.15;
-  text-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  text-shadow: 0 2px 6px rgba(0,0,0,0.45);
   word-break: break-word;
 }
+
 .app-content {
   flex: 1;
   padding: 12px;
   overflow-y: auto;
 }
 
-/* Cards inside the app */
+/* Big feature cards */
 .app-cards {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 12px;
 }
 .app-card {
-  border-radius: 14px;
-  padding: 12px;
-  color: #fff;
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 10px;
+  position: relative;
+  min-height: 140px;
+  border-radius: 16px;
+  overflow: hidden;
+  background-color: var(--app-primary);
+  background-size: cover;
+  background-position: center;
+  display: flex;
   align-items: center;
-}
-.app-card.card-0 { background: linear-gradient(135deg, #4b7bd4, #14386b); }
-.app-card.card-1 { background: linear-gradient(135deg, #f5b93d, #d6991d); color: #1e2a3d; }
-.app-card.card-2 { background: linear-gradient(135deg, #53a077, #2f7a55); }
-.app-card-emoji {
-  font-size: 28px;
+  justify-content: center;
   text-align: center;
-  line-height: 1;
+  padding: 18px 16px;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.app-card.empty {
+  background: linear-gradient(135deg, #cfd8e8, #a8b6ca);
+}
+.app-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.65) 100%);
 }
 .app-card-body {
-  min-width: 0;
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 .app-card-title {
+  font-size: 18px;
   font-weight: 700;
-  font-size: 14px;
-  line-height: 1.2;
+  line-height: 1.15;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.55);
   word-break: break-word;
+  text-align: center;
 }
 .app-card-caption {
-  font-size: 11px;
-  opacity: 0.9;
-  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.95;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
   word-break: break-word;
+  text-align: center;
+  max-width: 100%;
 }
 
+/* Buttons — all use the student's primary color */
 .app-buttons {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 4px;
 }
 .app-button {
   width: 100%;
   padding: 11px;
   border: none;
   border-radius: 999px;
-  background: var(--wolf-blue);
+  background: var(--app-primary);
   color: #fff;
   font-weight: 700;
   font-size: 14px;
   font-family: inherit;
   cursor: pointer;
 }
-.app-button:nth-child(2) { background: var(--wolf-gold); color: var(--wolf-blue-dark); }
-.app-button:nth-child(3) { background: #2f7a55; }
 
+/* Footer — uses the student's accent color */
 .app-footer {
   flex-shrink: 0;
   padding: 10px 12px;
-  background: #f2f5fa;
-  border-top: 1px solid #e3e9f2;
+  background: var(--app-accent);
+  color: #fff;
   text-align: center;
 }
 .app-footer-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
   word-break: break-word;
 }
 .app-credit {
   font-size: 9px;
-  color: #8a94a7;
+  color: rgba(255,255,255,0.82);
   margin-top: 4px;
   word-break: break-word;
 }
-.app-credit a { color: #6b7689; }
+.app-credit a { color: rgba(255,255,255,0.9); text-decoration: underline; }
 
 .preview-hint {
   margin-top: 14px;
@@ -593,10 +595,7 @@ a { color: var(--wolf-blue); }
   flex-direction: column;
   align-items: center;
 }
-.share-note {
-  margin-top: 18px;
-  color: var(--ink-soft);
-}
+.share-note { margin-top: 18px; color: var(--ink-soft); }
 .share-actions { margin-top: 8px; }
 .error-card {
   background: var(--card);

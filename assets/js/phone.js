@@ -8,7 +8,8 @@
 
   // build = {
   //   header:  { title, font, image_url, image_credit, image_credit_url },
-  //   cards:   [{emoji, title, caption}, ...],
+  //   colors:  { primary: '#hex', accent: '#hex' },
+  //   cards:   [{title, caption, image_url}, ...],
   //   buttons: [{label}, ...],
   //   footer:  { text }
   // }
@@ -24,15 +25,21 @@
     const font = (build.header && build.header.font) || 'fredoka';
     screen.dataset.font = font;
 
+    // Colors → CSS variables
+    const primary = (build.colors && build.colors.primary) || '#14386b';
+    const accent  = (build.colors && build.colors.accent)  || '#d35400';
+    screen.style.setProperty('--app-primary', primary);
+    screen.style.setProperty('--app-accent',  accent);
+
     // Title
     const title = (build.header && build.header.title) || '';
     titleEl.textContent = title.length ? title : 'Your app name';
 
     // Header image
-    const img = safeImage(build.header && build.header.image_url);
-    if (img) {
+    const headerImg = safeImage(build.header && build.header.image_url);
+    if (headerImg) {
       headerEl.classList.remove('empty');
-      headerEl.style.backgroundImage = "url('" + img.replace(/'/g, "%27") + "')";
+      headerEl.style.backgroundImage = "url('" + headerImg.replace(/'/g, "%27") + "')";
     } else {
       headerEl.classList.add('empty');
       headerEl.style.backgroundImage = '';
@@ -41,29 +48,37 @@
     // Cards
     cardsWrap.textContent = '';
     const cards = Array.isArray(build.cards) ? build.cards : [];
-    cards.forEach((c, i) => {
-      const emoji = (c && c.emoji) ? String(c.emoji) : '';
+    cards.forEach((c) => {
       const ctitle = (c && c.title) ? String(c.title) : '';
       const ccap   = (c && c.caption) ? String(c.caption) : '';
-      if (!emoji && !ctitle) return;
+      if (!ctitle && !ccap) return;
       const el = document.createElement('div');
-      el.className = 'app-card card-' + (i % 3);
-      const e = document.createElement('div');
-      e.className = 'app-card-emoji';
-      e.textContent = emoji;
+      el.className = 'app-card';
+      const cardImg = safeImage(c && c.image_url);
+      if (cardImg) {
+        el.style.backgroundImage = "url('" + cardImg.replace(/'/g, "%27") + "')";
+      } else {
+        el.classList.add('empty');
+      }
+
+      const overlay = document.createElement('div');
+      overlay.className = 'app-card-overlay';
+      el.appendChild(overlay);
+
       const body = document.createElement('div');
       body.className = 'app-card-body';
-      const t = document.createElement('div');
-      t.className = 'app-card-title';
-      t.textContent = ctitle;
-      body.appendChild(t);
+      if (ctitle) {
+        const t = document.createElement('div');
+        t.className = 'app-card-title';
+        t.textContent = ctitle;
+        body.appendChild(t);
+      }
       if (ccap) {
         const cap = document.createElement('div');
         cap.className = 'app-card-caption';
         cap.textContent = ccap;
         body.appendChild(cap);
       }
-      el.appendChild(e);
       el.appendChild(body);
       cardsWrap.appendChild(el);
     });

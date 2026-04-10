@@ -5,7 +5,8 @@
 // Expected build shape:
 // {
 //   header:  { title, font, image_url, image_thumbnail, image_credit, image_credit_url, image_license, image_source },
-//   cards:   [{ emoji, title, caption }, ...],
+//   colors:  { primary, accent }           // keys from includes/colors.php
+//   cards:   [{ title, caption, image_url, image_thumbnail, image_credit, image_credit_url, image_license, image_source }, ...],
 //   buttons: [{ label }, ...],
 //   footer:  { text }
 // }
@@ -13,6 +14,7 @@
 require_once __DIR__ . '/../includes/moderation.php';
 require_once __DIR__ . '/../includes/storage.php';
 require_once __DIR__ . '/../includes/fonts.php';
+require_once __DIR__ . '/../includes/colors.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -38,9 +40,9 @@ if (!is_array($body)) {
 }
 
 // ---- Header ----
-$title     = isset($body['header']['title'])     ? (string)$body['header']['title']     : '';
-$font      = isset($body['header']['font'])      ? (string)$body['header']['font']      : 'fredoka';
-$image_url = isset($body['header']['image_url']) ? (string)$body['header']['image_url'] : '';
+$title     = isset($body['header']['title'])           ? (string)$body['header']['title']           : '';
+$font      = isset($body['header']['font'])            ? (string)$body['header']['font']            : 'fredoka';
+$image_url = isset($body['header']['image_url'])       ? (string)$body['header']['image_url']       : '';
 $image_thumb = isset($body['header']['image_thumbnail']) ? (string)$body['header']['image_thumbnail'] : '';
 $credit    = isset($body['header']['image_credit'])     ? (string)$body['header']['image_credit']     : '';
 $credit_u  = isset($body['header']['image_credit_url']) ? (string)$body['header']['image_credit_url'] : '';
@@ -55,7 +57,7 @@ if ($title === '' || mb_strlen($title) > MAX_TITLE_LEN) {
 }
 if (strpos($image_url, 'https://') !== 0) {
     http_response_code(400);
-    echo json_encode(['error' => 'Image must be a secure (https) URL.']);
+    echo json_encode(['error' => 'Header image must be a secure (https) URL.']);
     exit;
 }
 if (!is_valid_font($font)) {
@@ -64,41 +66,59 @@ if (!is_valid_font($font)) {
 $m = moderate_text($title);
 if (!$m['ok']) { http_response_code(400); echo json_encode(['error' => $m['reason']]); exit; }
 
+// ---- Colors ----
+$primary_key = isset($body['colors']['primary']) ? (string)$body['colors']['primary'] : 'navy';
+$accent_key  = isset($body['colors']['accent'])  ? (string)$body['colors']['accent']  : 'orange';
+if (!is_valid_color_key($primary_key)) $primary_key = 'navy';
+if (!is_valid_color_key($accent_key))  $accent_key  = 'orange';
+
 // ---- Cards ----
 $cards_in = isset($body['cards']) && is_array($body['cards']) ? $body['cards'] : [];
 if (count($cards_in) < MIN_CARDS || count($cards_in) > MAX_CARDS) {
     http_response_code(400);
-    echo json_encode(['error' => 'Add ' . MIN_CARDS . ' to ' . MAX_CARDS . ' fun cards.']);
+    echo json_encode(['error' => 'Add ' . MIN_CARDS . ' to ' . MAX_CARDS . ' fun fact cards.']);
     exit;
 }
 $cards = [];
 foreach ($cards_in as $c) {
-    $emoji   = isset($c['emoji'])   ? trim((string)$c['emoji'])   : '';
     $c_title = isset($c['title'])   ? trim((string)$c['title'])   : '';
     $c_cap   = isset($c['caption']) ? trim((string)$c['caption']) : '';
+    $c_img   = isset($c['image_url'])       ? (string)$c['image_url']       : '';
+    $c_thumb = isset($c['image_thumbnail']) ? (string)$c['image_thumbnail'] : '';
+    $c_credit= isset($c['image_credit'])     ? (string)$c['image_credit']     : '';
+    $c_credU = isset($c['image_credit_url']) ? (string)$c['image_credit_url'] : '';
+    $c_lic   = isset($c['image_license'])    ? (string)$c['image_license']    : '';
+    $c_src   = isset($c['image_source'])     ? (string)$c['image_source']     : '';
 
-    if ($emoji === '' || mb_strlen($emoji) > 8) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Each card needs an emoji.']);
-        exit;
-    }
     if ($c_title === '' || mb_strlen($c_title) > MAX_CARD_TITLE_LEN) {
         http_response_code(400);
-        echo json_encode(['error' => "Each card needs a short title (under " . MAX_CARD_TITLE_LEN . " letters)."]);
+        echo json_encode(['error' => "Each card needs a headline (under " . MAX_CARD_TITLE_LEN . " letters)."]);
         exit;
     }
-    if (mb_strlen($c_cap) > MAX_CARD_CAPTION_LEN) {
+    if ($c_cap === '' || mb_strlen($c_cap) > MAX_CARD_CAPTION_LEN) {
         http_response_code(400);
-        echo json_encode(['error' => "Card captions are too long (max " . MAX_CARD_CAPTION_LEN . " letters)."]);
+        echo json_encode(['error' => "Each card needs a fun fact (under " . MAX_CARD_CAPTION_LEN . " letters)."]);
         exit;
+    }
+    // Card image is optional. If present, must be https.
+    if ($c_img !== '' && strpos($c_img, 'https://') !== 0) {
+        $c_img = ''; // drop invalid URL rather than erroring
     }
     $m = moderate_text($c_title);
     if (!$m['ok']) { http_response_code(400); echo json_encode(['error' => $m['reason']]); exit; }
-    if ($c_cap !== '') {
-        $m = moderate_text($c_cap);
-        if (!$m['ok']) { http_response_code(400); echo json_encode(['error' => $m['reason']]); exit; }
-    }
-    $cards[] = ['emoji' => $emoji, 'title' => $c_title, 'caption' => $c_cap];
+    $m = moderate_text($c_cap);
+    if (!$m['ok']) { http_response_code(400); echo json_encode(['error' => $m['reason']]); exit; }
+
+    $cards[] = [
+        'title'            => $c_title,
+        'caption'          => $c_cap,
+        'image_url'        => $c_img,
+        'image_thumbnail'  => $c_thumb,
+        'image_credit'     => $c_credit,
+        'image_credit_url' => $c_credU,
+        'image_license'    => $c_lic,
+        'image_source'     => $c_src,
+    ];
 }
 
 // ---- Buttons ----
@@ -142,6 +162,7 @@ $build = [
         'image_license'    => $license,
         'image_source'     => $img_source,
     ],
+    'colors'  => ['primary' => $primary_key, 'accent' => $accent_key],
     'cards'   => $cards,
     'buttons' => $buttons,
     'footer'  => ['text' => $footer_text],
